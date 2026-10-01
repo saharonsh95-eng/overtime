@@ -30,13 +30,13 @@
   const dayOf = (iso) => { const [y, m, d] = iso.split('-').map(Number); return { d, w: HEB_DAYS[new Date(y, m - 1, d).getDay()], m }; };
   const fmtDate = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
   const fmtH = (h) => { const n = Math.round(Number(h || 0) * 100) / 100; return String(n); };
-  const statusChip = (s) => s === 'מאושר' ? '<span class="chip ok">מאושר</span>' : s === 'נדחה' ? '<span class="chip bad">נדחה</span>' : '<span class="chip warn">ממתין לאישור</span>';
 
   const ICON = {
     prev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
     next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5" stroke-linecap="round"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
     refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
   };
 
@@ -179,7 +179,7 @@
         <div class="card" style="text-align:center">
           <div style="font-size:40px">⏳</div>
           <h2 style="margin:6px 0">הבקשה נשלחה</h2>
-          <p class="muted">ביקשת להשתייך ל<b>${esc(me.link.tab)}</b>.<br>אחרי שמנהל יאשר, אפשר יהיה לדווח שעות.</p>
+          <p class="muted">ביקשת להשתייך ל<b>${esc(me.link.tab)}</b>${me.link.isNew ? ' (שם חדש)' : ''}.<br>אחרי שמנהל יאשר, אפשר יהיה לדווח שעות.</p>
           <div class="actions"><button class="btn primary" id="chk">בדיקה אם אושר</button></div>
           <button class="linkbtn" id="chg" style="margin-top:10px">טעיתי בשם – בחירה מחדש</button>
         </div>`;
@@ -190,21 +190,41 @@
         <div class="section-title">מי את/ה? בחר/י את השם שלך</div>
         <p class="muted small" style="margin:-4px 4px 12px">הבחירה תישלח לאישור מנהל. אחרי האישור תוכל/י לדווח רק על עצמך.</p>
         <div class="pick">
-          ${tabs.map((t) => `<button data-tab="${esc(t.tab)}" ${t.taken ? 'disabled' : ''}>${esc(t.tab)}${t.taken ? '<small>כבר משויך</small>' : ''}</button>`).join('')}
+          ${tabs.map((t, i) => `<button data-i="${i}" ${t.taken ? 'disabled' : ''}>${esc(t.tab)}${t.taken ? '<small>כבר משויך</small>' : ''}</button>`).join('')}
+        </div>
+        <div class="card" style="margin-top:16px">
+          <b>השם שלי לא ברשימה</b>
+          <p class="muted small" style="margin:4px 0 10px">אפשר להוסיף שם חדש. אחרי אישור המנהל תיפתח לך לשונית חדשה בגיליון.</p>
+          <form id="nn" style="display:flex;gap:8px">
+            <input class="input" name="name" placeholder="שם מלא" maxlength="40" required style="flex:1">
+            <button class="btn primary" type="submit">שליחה</button>
+          </form>
         </div>`;
     }
     $app.innerHTML = topbar() + `<main>${body}</main>`;
     bindTopbar();
-    $app.querySelectorAll('.pick button[data-tab]').forEach((b) => {
-      b.onclick = () => confirmSheet(`להשתייך ל"${b.dataset.tab}"?`, 'הבקשה תישלח למנהל לאישור.', 'שליחה', async () => {
-        await run(() => api('requestLink', { tab: b.dataset.tab }), 'הבקשה נשלחה');
+    const tabs = me.tabs || [];
+    $app.querySelectorAll('.pick button[data-i]').forEach((b) => {
+      const tab = tabs[Number(b.dataset.i)].tab;
+      b.onclick = () => confirmSheet(`להשתייך ל"${tab}"?`, 'הבקשה תישלח למנהל לאישור.', 'שליחה', async () => {
+        await run(() => api('requestLink', { tab }), 'הבקשה נשלחה');
         boot();
       });
     });
+    const nn = document.getElementById('nn');
+    if (nn) nn.onsubmit = (ev) => {
+      ev.preventDefault();
+      const name = ev.target.name.value.trim();
+      if (name.length < 2) return toast('יש לכתוב שם', true);
+      confirmSheet(`להוסיף את השם "${name}"?`, 'אחרי אישור המנהל תיפתח לשונית חדשה בשם הזה.', 'שליחה', async () => {
+        await run(() => api('requestLink', { newName: name }), 'הבקשה נשלחה');
+        boot();
+      });
+    };
     const chk = document.getElementById('chk');
     if (chk) chk.onclick = () => run(boot);
     const chg = document.getElementById('chg');
-    if (chg) chg.onclick = async () => { await run(async () => { state.me = await api('whoami'); state.me.tabs = state.me.tabs || []; }); renderLink(true); };
+    if (chg) chg.onclick = async () => { await run(async () => { state.me = await api('whoami'); }); renderLink(true); };
   }
 
   /* ================= shell ================= */
@@ -233,7 +253,7 @@
   function renderShell() {
     const me = state.me;
     const linked = me.link && me.link.status === 'מאושר';
-    const pendingCount = state.admin ? state.admin.pending.length + state.admin.users.filter((u) => u.status === 'ממתין').length : 0;
+    const pendingCount = requestsCount();
     const nav = me.isOwner ? `
       <nav class="bottomnav">
         <button data-v="mine" class="${state.view === 'mine' ? 'active' : ''}">${ICON.clock}השעות שלי</button>
@@ -269,7 +289,7 @@
     const main = document.getElementById('main');
     const l = state.me.link;
     if (l && l.status === 'ממתין') {
-      main.innerHTML = `<div class="card"><b>ממתין לאישור</b><p class="muted small">ביקשת להשתייך ל"${esc(l.tab)}". מנהל אחר (או את/ה, בלשונית ניהול) צריך לאשר.</p></div>`;
+      main.innerHTML = `<div class="card"><b>ממתין לאישור</b><p class="muted small">ביקשת להשתייך ל"${esc(l.tab)}". אפשר לאשר בלשונית ניהול.</p></div>`;
       return;
     }
     main.innerHTML = `<div class="card"><b>לא משויך/ת לשם ברשימה</b><p class="muted small">כמנהל/ת אפשר לנהל בלי שיוך. אם גם את/ה מדווח/ת שעות – בחר/י את השם שלך.</p><button class="btn primary block" id="lnk">בחירת שם</button></div>`;
@@ -289,22 +309,19 @@
     }
   }
 
-  function entryCard(e, opts) {
+  function entryCard(e, actions) {
     const day = dayOf(e.date);
     return `
       <div class="card entry">
         <div class="day"><b>${day.d}</b><span>יום ${day.w}</span></div>
         <div class="body">
-          ${opts && opts.who ? `<div class="who">${esc(e.tab)}${e.name && e.name !== e.tab ? ` <span class="muted small">(${esc(e.name)})</span>` : ''}</div>` : ''}
           <div class="row1">
             <span class="hours"><span class="num">${fmtH(e.hours)}</span> ש׳</span>
             ${e.start || e.end ? `<span class="times num">${esc(e.start)}–${esc(e.end)}</span>` : ''}
-            ${opts && opts.who ? `<span class="muted small">${fmtDate(e.date)}</span>` : statusChip(e.status)}
           </div>
           ${e.note ? `<div class="note">${esc(e.note)}</div>` : ''}
-          ${e.status === 'נדחה' && e.reason ? `<div class="note" style="color:var(--bad)">סיבה: ${esc(e.reason)}</div>` : ''}
-          ${opts && opts.actions ? opts.actions : ''}
         </div>
+        ${actions || ''}
       </div>`;
   }
 
@@ -312,46 +329,43 @@
     const m = state.mine;
     const main = document.getElementById('main');
     if (!main || !m) return;
-    const all = [...m.pending, ...m.rejected, ...m.approved].sort((a, b) => b.date.localeCompare(a.date));
+    const all = m.entries.slice().sort((a, b) => b.date.localeCompare(a.date) || b.start.localeCompare(a.start));
     main.innerHTML = `
       ${monthbar(m.month, 'mine')}
-      ${m.missingFile ? '<div class="banner">עדיין לא נפתח קובץ לחודש הזה. אפשר לדווח – הדיווח יאושר אחרי שהמנהל יפתח את החודש.</div>' : ''}
+      ${m.missingFile ? `<div class="banner">${m.canCreate ? 'החודש הזה ייפתח אוטומטית בדיווח הראשון.' : 'אין קובץ לחודש הזה.'}</div>` : ''}
       <div class="stats">
-        <div class="stat ok"><div class="v num">${fmtH(m.totals.approved)}</div><div class="k">שעות מאושרות</div></div>
-        <div class="stat warn"><div class="v num">${fmtH(m.totals.pending)}</div><div class="k">ממתינות לאישור</div></div>
+        <div class="stat ok"><div class="v num">${fmtH(m.totals.hours)}</div><div class="k">סה״כ שעות נוספות</div></div>
+        <div class="stat"><div class="v num">${m.totals.count}</div><div class="k">דיווחים</div></div>
       </div>
       <div class="section-title">הדיווחים שלי</div>
-      ${all.length ? all.map((e) => entryCard(e, {
-        actions: e.status === 'ממתין' ? `<div class="actions"><button class="btn small danger" data-del="${esc(e.id)}">מחיקה</button></div>`
-          : e.status === 'נדחה' ? `<div class="actions"><button class="btn small ghost" data-fix="${esc(e.id)}">דיווח מתוקן</button><button class="btn small danger" data-del="${esc(e.id)}">הסרה</button></div>` : '',
-      })).join('') : '<div class="empty">אין דיווחים בחודש הזה</div>'}
+      ${all.length ? all.map((e) => entryCard(e,
+        `<button class="iconbtn del" data-row="${e.row}" data-sig="${esc(e.sig)}" aria-label="מחיקה">${ICON.trash}</button>`)).join('')
+        : '<div class="empty">אין דיווחים בחודש הזה</div>'}
     `;
     bindMonthbar('mine', (d) => { state.month = shiftMonth(state.month, d); loadMine(); });
-    main.querySelectorAll('[data-del]').forEach((b) => {
-      b.onclick = () => confirmSheet('למחוק את הדיווח?', '', 'מחיקה', async () => {
-        await run(() => api('deletePending', { id: b.dataset.del }), 'נמחק');
-        loadMine();
-      }, true);
-    });
-    main.querySelectorAll('[data-fix]').forEach((b) => {
-      b.onclick = () => entryForm(m.rejected.find((x) => x.id === b.dataset.fix));
+    main.querySelectorAll('[data-sig]').forEach((b) => {
+      const e = all.find((x) => String(x.row) === b.dataset.row && x.sig === b.dataset.sig);
+      b.onclick = () => confirmSheet('למחוק את הדיווח?',
+        `${fmtDate(e.date)} · ${e.start}–${e.end} · ${fmtH(e.hours)} שעות. השורה תימחק גם מהגיליון.`, 'מחיקה', async () => {
+          await run(() => api('deleteEntry', { month: m.month, row: e.row, sig: e.sig }), 'נמחק');
+          loadMine();
+        }, true);
     });
   }
 
-  function entryForm(prefill) {
-    const p = prefill || {};
-    const defDate = p.date || (state.month === todayISO().slice(0, 7) ? todayISO() : `${state.month}-01`);
+  function entryForm() {
+    const defDate = state.month === todayISO().slice(0, 7) ? todayISO() : `${state.month}-01`;
     openSheet(`
       <h2>דיווח שעות נוספות</h2>
       <form id="ef" novalidate>
         <label class="field"><span>תאריך</span><input class="input" type="date" name="date" value="${esc(defDate)}" required></label>
         <div class="grid2">
-          <label class="field"><span>שעת כניסה</span><input class="input" type="time" name="start" value="${esc(p.start || '')}" required></label>
-          <label class="field"><span>שעת יציאה</span><input class="input" type="time" name="end" value="${esc(p.end || '')}" required></label>
+          <label class="field"><span>שעת כניסה</span><input class="input" type="time" name="start" required></label>
+          <label class="field"><span>שעת יציאה</span><input class="input" type="time" name="end" required></label>
         </div>
-        <label class="field"><span>שעות נוספות</span><input class="input" type="number" inputmode="decimal" step="0.25" min="0.25" max="24" name="hours" value="${esc(p.hours || '')}" placeholder="לדוגמה 2.5" required></label>
-        <label class="field"><span>הערה (לא חובה)</span><textarea class="input" name="note" maxlength="300" placeholder="אירוע, החלפה, תרגיל...">${esc(p.note || '')}</textarea></label>
-        <button class="btn primary block" type="submit">שליחה לאישור</button>
+        <label class="field"><span>שעות נוספות</span><input class="input" type="number" inputmode="decimal" step="0.25" min="0.25" max="24" name="hours" placeholder="לדוגמה 2.5" required></label>
+        <label class="field"><span>הערה (לא חובה)</span><textarea class="input" name="note" maxlength="300" placeholder="אירוע, החלפה, תרגיל..."></textarea></label>
+        <button class="btn primary block" type="submit">שמירה</button>
       </form>`, (root) => {
       root.querySelector('#ef').onsubmit = async (ev) => {
         ev.preventDefault();
@@ -361,7 +375,7 @@
         const h = Number(String(f.hours).replace(',', '.'));
         if (!(h > 0 && h <= 24)) return toast('יש למלא מספר שעות נוספות (בין 0 ל-24)', true);
         f.hours = h;
-        await run(() => api('submitEntry', f), 'נשלח לאישור ✓');
+        await run(() => api('submitEntry', f), 'נשמר בגיליון ✓');
         closeSheet();
         state.month = f.date.slice(0, 7);
         loadMine();
@@ -370,6 +384,8 @@
   }
 
   /* ================= admin ================= */
+  const requestsCount = () => (state.admin ? state.admin.users.filter((u) => u.status === 'ממתין').length : 0);
+
   async function loadAdmin() {
     const main = document.getElementById('main');
     if (!state.admin || state.admin.month !== state.adminMonth) main.innerHTML = '<div class="boot" style="min-height:40vh"><div class="spinner"></div></div>';
@@ -385,7 +401,7 @@
   function updateBadge() {
     const btn = document.querySelector('.bottomnav button[data-v="admin"]');
     if (!btn || !state.admin) return;
-    const n = state.admin.pending.length + state.admin.users.filter((u) => u.status === 'ממתין').length;
+    const n = requestsCount();
     const old = btn.querySelector('.badge'); if (old) old.remove();
     if (n) btn.insertAdjacentHTML('beforeend', `<span class="badge">${n}</span>`);
   }
@@ -395,22 +411,15 @@
     const main = document.getElementById('main');
     if (!main || !a) return;
     const reqs = a.users.filter((u) => u.status === 'ממתין');
-    const approvedUsers = a.users.filter((u) => u.status === 'מאושר').sort((x, y) => x.tab.localeCompare(y.tab, 'he'));
     const total = a.summary ? a.summary.reduce((s, r) => s + r.hours, 0) : 0;
+    const tabs = a.tabs.slice().sort((x, y) => x.tab.localeCompare(y.tab, 'he'));
 
     main.innerHTML = `
-      <div class="section-title"><span>דיווחים ממתינים (${a.pending.length})</span>
-        ${a.pending.length > 1 ? '<button class="linkbtn" id="all">אישור הכול</button>' : ''}</div>
-      ${a.pending.length ? a.pending.map((e) => entryCard(e, {
-        who: true,
-        actions: `<div class="actions"><button class="btn small ok" data-ok="${esc(e.id)}">אישור</button><button class="btn small danger" data-no="${esc(e.id)}">דחייה</button></div>`,
-      })).join('') : '<div class="card empty">אין דיווחים שממתינים לאישור 👍</div>'}
-
       ${reqs.length ? `
         <div class="section-title">בקשות הצטרפות (${reqs.length})</div>
         <div class="card list">${reqs.map((u) => `
           <div class="item">
-            <div class="grow"><div class="ttl">${esc(u.tab)}</div><div class="sub">${esc(u.name)} · ${esc(u.email)}</div></div>
+            <div class="grow"><div class="ttl">${esc(u.tab)} ${u.newTab === 'כן' ? '<span class="chip warn">שם חדש</span>' : ''}</div><div class="sub">${esc(u.name)} · ${esc(u.email)}</div></div>
             <button class="btn small ok" data-uok="${esc(u.email)}">אישור</button>
             <button class="btn small danger" data-uno="${esc(u.email)}">דחייה</button>
           </div>`).join('')}</div>` : ''}
@@ -420,18 +429,25 @@
         ${monthbar(a.month, 'adm')}
         ${a.summary ? `
           <table class="summary">
-            <thead><tr><th>משתתף</th><th style="text-align:end">דיווחים</th><th style="text-align:end">שעות</th></tr></thead>
+            <thead><tr><th>שם</th><th style="text-align:end">דיווחים</th><th style="text-align:end">שעות</th></tr></thead>
             <tbody>${a.summary.map((r) => `<tr><td>${esc(r.tab)}${r.email ? '' : ' <span class="muted small">(לא משויך)</span>'}</td><td class="n num">${r.count}</td><td class="n num">${fmtH(r.hours)}</td></tr>`).join('')}</tbody>
             <tfoot><tr><td>סה״כ</td><td></td><td class="n num">${fmtH(total)}</td></tr></tfoot>
           </table>` : `<div class="empty">אין קובץ ל${monthLabel(a.month)}.<br><button class="btn primary small" id="mkthis" style="margin-top:10px">יצירת קובץ לחודש הזה</button></div>`}
       </div>
 
-      <div class="section-title">משתתפים מאושרים (${approvedUsers.length})</div>
-      <div class="card list">${approvedUsers.length ? approvedUsers.map((u) => `
-        <div class="item">
-          <div class="grow"><div class="ttl">${esc(u.tab)}</div><div class="sub">${esc(u.email)}</div></div>
-          <button class="btn small ghost" data-urm="${esc(u.email)}">ביטול שיוך</button>
-        </div>`).join('') : '<div class="empty">עדיין אין</div>'}</div>
+      <div class="section-title">שמות ברשימה (${tabs.length})</div>
+      <div class="card list">
+        ${tabs.map((t, i) => `
+          <div class="item">
+            <div class="grow"><div class="ttl">${esc(t.tab)}</div><div class="sub">${t.email ? esc(t.email) : 'לא משויך'}</div></div>
+            ${t.email ? `<button class="btn small ghost" data-urm="${esc(t.email)}">ביטול שיוך</button>` : ''}
+            <button class="iconbtn del" data-tdel="${i}" aria-label="מחיקת שם">${ICON.trash}</button>
+          </div>`).join('')}
+        <form id="addt" style="display:flex;gap:8px;margin-top:12px">
+          <input class="input" name="name" placeholder="הוספת שם חדש" maxlength="40" required style="flex:1">
+          <button class="btn primary" type="submit">הוספה</button>
+        </form>
+      </div>
 
       <div class="section-title">מנהלים</div>
       <div class="card list">
@@ -453,39 +469,23 @@
             <div class="grow"><div class="ttl">${monthLabel(m.month)}</div></div>
             <a class="linkbtn" href="${esc(m.url)}" target="_blank" rel="noopener">פתיחת הקובץ</a>
           </div>`).join('')}
-        <div class="actions"><button class="btn ghost" id="newm">פתיחת חודש חדש</button></div>
+        <p class="muted small">חודש חדש נפתח אוטומטית כשמישהו מדווח עליו לראשונה. אפשר גם לפתוח ידנית:</p>
+        <div class="actions" style="margin-top:4px"><button class="btn ghost" id="newm">פתיחת חודש חדש</button></div>
       </div>
 
       <div class="section-title">הגדרות</div>
       <div class="card">
-        <label class="switch"><span><b>התראות במייל</b><br><span class="muted small">מייל למנהלים על כל דיווח ובקשה חדשה, ולמשתתפים על אישור/דחייה</span></span>
+        <label class="switch"><span><b>התראות במייל</b><br><span class="muted small">מייל למנהלים על בקשת הצטרפות, ולמשתתף כשהבקשה שלו אושרה או נדחתה</span></span>
           <input type="checkbox" id="mail" ${a.settings.emailNotifications ? 'checked' : ''}></label>
+        <div style="border-top:1px solid var(--line);margin:14px 0"></div>
+        <b>סידור הלשוניות</b>
+        <p class="muted small" style="margin:4px 0 10px">מוודא שבכל לשונית הטבלה מתחילה ב-A1 עם העמודות: תאריך, שעת כניסה, שעת יציאה, שעות נוספות, הערה.</p>
+        <button class="btn ghost block" id="norm">סידור כל הלשוניות</button>
       </div>
     `;
 
     bindMonthbar('adm', (d) => { state.adminMonth = shiftMonth(state.adminMonth, d); loadAdmin(); });
 
-    const all = document.getElementById('all');
-    if (all) all.onclick = () => confirmSheet(`לאשר ${a.pending.length} דיווחים?`, 'כל הדיווחים ייכתבו לגיליון.', 'אישור הכול', async () => {
-      const r = await run(() => api('approveMany', { ids: a.pending.map((p) => p.id) }));
-      toast(r.errors.length ? `אושרו ${r.done}. שגיאות: ${r.errors[0]}` : `אושרו ${r.done} דיווחים`, !!r.errors.length);
-      loadAdmin();
-    });
-    main.querySelectorAll('[data-ok]').forEach((b) => {
-      b.onclick = async () => { await run(() => api('decideEntry', { id: b.dataset.ok, approve: true }), 'אושר ונכתב לגיליון'); loadAdmin(); };
-    });
-    main.querySelectorAll('[data-no]').forEach((b) => {
-      b.onclick = () => openSheet(`
-        <h2>דחיית דיווח</h2>
-        <form id="rj"><label class="field"><span>סיבה (תישלח למשתתף)</span><textarea class="input" name="reason" maxlength="200"></textarea></label>
-        <button class="btn danger block" type="submit">דחייה</button></form>`, (root) => {
-        root.querySelector('#rj').onsubmit = async (ev) => {
-          ev.preventDefault();
-          await run(() => api('decideEntry', { id: b.dataset.no, approve: false, reason: ev.target.reason.value }), 'נדחה');
-          closeSheet(); loadAdmin();
-        };
-      });
-    });
     main.querySelectorAll('[data-uok]').forEach((b) => {
       b.onclick = async () => { await run(() => api('decideUser', { email: b.dataset.uok, approve: true }), 'אושר'); loadAdmin(); };
     });
@@ -493,10 +493,23 @@
       b.onclick = async () => { await run(() => api('decideUser', { email: b.dataset.uno, approve: false }), 'נדחה'); loadAdmin(); };
     });
     main.querySelectorAll('[data-urm]').forEach((b) => {
-      b.onclick = () => confirmSheet('לבטל את השיוך?', `${b.dataset.urm} לא יוכל לדווח עד שיבחר שם ויאושר שוב.`, 'ביטול שיוך', async () => {
+      b.onclick = () => confirmSheet('לבטל את השיוך?', `${b.dataset.urm} לא יוכל לדווח עד שיבחר שם ויאושר שוב. השעות בגיליון נשארות.`, 'ביטול שיוך', async () => {
         await run(() => api('removeUser', { email: b.dataset.urm }), 'השיוך בוטל'); loadAdmin();
       }, true);
     });
+    main.querySelectorAll('[data-tdel]').forEach((b) => {
+      const t = tabs[Number(b.dataset.tdel)];
+      b.onclick = () => confirmSheet(`למחוק את "${t.tab}"?`,
+        'הלשונית תימחק מהגיליון של החודש הנוכחי (והבאים, אם נפתחו), כולל השעות שבה. חודשים קודמים לא ייפגעו.' + (t.email ? ` השיוך של ${t.email} יבוטל.` : ''),
+        'מחיקה', async () => {
+          await run(() => api('deleteTab', { tab: t.tab }), 'השם נמחק'); loadAdmin();
+        }, true);
+    });
+    document.getElementById('addt').onsubmit = async (ev) => {
+      ev.preventDefault();
+      await run(() => api('addTab', { name: ev.target.name.value.trim() }), 'נוספה לשונית חדשה');
+      loadAdmin();
+    };
     main.querySelectorAll('[data-orm]').forEach((b) => {
       b.onclick = () => confirmSheet('להסיר מנהל?', b.dataset.orm, 'הסרה', async () => {
         await run(() => api('removeOwner', { email: b.dataset.orm }), 'הוסר');
@@ -510,6 +523,14 @@
       loadAdmin();
     };
     document.getElementById('mail').onchange = (ev) => run(() => api('setSetting', { key: 'emailNotifications', value: ev.target.checked }), 'נשמר');
+    document.getElementById('norm').onclick = async () => {
+      const r = await run(() => api('normalizeTabs'));
+      if (r.notes.length) {
+        openSheet(`<h2>סודרו ${r.fixed} לשוניות</h2><p class="muted">כדאי לבדוק ידנית:</p><ul>${r.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul><button class="btn ghost block" id="cls">סגירה</button>`,
+          (root) => { root.querySelector('#cls').onclick = closeSheet; });
+      } else toast(`כל ${r.fixed} הלשוניות מסודרות ✓`);
+      loadAdmin();
+    };
     document.getElementById('newm').onclick = () => newMonthSheet();
     const mk = document.getElementById('mkthis');
     if (mk) mk.onclick = () => newMonthSheet(a.month);

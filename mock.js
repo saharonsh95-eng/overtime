@@ -5,7 +5,7 @@
   const today = new Date();
   const ym = `${today.getFullYear()}-${pad(today.getMonth() + 1)}`;
   const d = (day) => `${ym}-${pad(day)}`;
-  const TABS = ['יעקב משיטו', 'שי בן סימון', 'יובל ברק', 'ראג׳א חמזה', 'אסף הרוש', 'יוסף כיוף',
+  let TABS = ['יעקב משיטו', 'שי בן סימון', 'יובל ברק', 'ראג׳א חמזה', 'אסף הרוש', 'יוסף כיוף',
     'סולימאן שחידם', 'עדי שגיא', 'שרון קפיאן', 'מטבי מטבייב'];
 
   const role = new URLSearchParams(location.search).get('demo') || 'owner';
@@ -22,15 +22,14 @@
       { email: 'yuval@example.com', tab: 'יובל ברק', status: 'מאושר', name: 'יובל ברק' },
       { email: 'shai@example.com', tab: 'שי בן סימון', status: 'מאושר', name: 'שי בן סימון' },
       { email: 'asaf@example.com', tab: 'אסף הרוש', status: 'ממתין', name: 'אסף הרוש' },
-    ],
-    reports: [
-      { id: 'r1', email: 'yuval@example.com', name: 'יובל ברק', tab: 'יובל ברק', date: d(3), start: '07:00', end: '21:30', hours: 4.5, note: 'שריפה ברחוב הרצל', status: 'ממתין' },
-      { id: 'r2', email: 'shai@example.com', name: 'שי בן סימון', tab: 'שי בן סימון', date: d(4), start: '19:00', end: '09:00', hours: 2, note: '', status: 'ממתין' },
-      { id: 'r3', email: 'yuval@example.com', name: 'יובל ברק', tab: 'יובל ברק', date: d(1), start: '07:00', end: '20:00', hours: 3, note: 'החלפה', status: 'נדחה', reason: 'כבר דווח ע"י המשמרת' },
+      { email: 'sahar@example.com', tab: 'סהר לוי', status: 'ממתין', name: 'Sahar', newTab: 'כן' },
     ],
     sheet: {
       'יעקב משיטו': [{ date: d(1), start: '07:00', end: '22:00', hours: 5, note: 'תרגיל' }],
-      'יובל ברק': [{ date: d(2), start: '07:00', end: '19:30', hours: 2.5, note: '' }],
+      'יובל ברק': [
+        { date: d(2), start: '07:00', end: '19:30', hours: 2.5, note: '' },
+        { date: d(3), start: '07:00', end: '21:30', hours: 4.5, note: 'שריפה ברחוב הרצל' },
+      ],
       'שי בן סימון': [{ date: d(2), start: '07:00', end: '19:00', hours: 2, note: '' }, { date: d(5), start: '19:00', end: '10:00', hours: 3, note: 'אירוע חומ"ס' }],
     },
     months: [{ month: ym, id: 'demo', url: '#' }],
@@ -38,62 +37,67 @@
   };
   if (role === 'new') db.users = db.users.filter((u) => u.email !== me.email);
 
-  const linkOf = (e) => { const u = db.users.find((x) => x.email === e); return u ? { tab: u.tab, status: u.status } : null; };
+  const linkOf = (e) => { const u = db.users.find((x) => x.email === e); return u ? { tab: u.tab, status: u.status, isNew: u.newTab === 'כן' } : null; };
   const isOwner = (e) => db.owners.some((o) => o.email === e);
   const sum = (a) => a.reduce((s, x) => s + Number(x.hours || 0), 0);
   const fail = (m) => { throw new Error(m); };
+  const sig = (r) => [r.date, r.start, r.end, r.hours, r.note].join('|');
+  const rowsOf = (tab, month) => (db.sheet[tab] || []).map((r, i) => ({ ...r, row: i + 2, sig: sig(r) })).filter((r) => r.date.startsWith(month));
+  const taken = () => new Set(db.users.filter((u) => u.status === 'מאושר').map((u) => u.tab));
 
   const A = {
     whoami: () => {
       const link = linkOf(me.email);
       const r = { ...me, picture: '', isOwner: isOwner(me.email), link, months: db.months.map((m) => m.month), currentMonth: ym };
-      if (!link || link.status !== 'מאושר') {
-        const taken = new Set(db.users.filter((u) => u.status === 'מאושר').map((u) => u.tab));
-        r.tabs = TABS.map((t) => ({ tab: t, taken: taken.has(t) }));
-      }
+      if (!link || link.status !== 'מאושר') { const t = taken(); r.tabs = TABS.map((x) => ({ tab: x, taken: t.has(x) })); }
       return r;
     },
-    requestLink: ({ tab }) => {
+    requestLink: ({ tab, newName }) => {
+      if (newName && TABS.includes(newName)) fail(`השם "${newName}" כבר קיים ברשימה – אפשר לבחור אותו`);
       db.users = db.users.filter((u) => u.email !== me.email);
-      db.users.push({ email: me.email, tab, status: 'ממתין', name: me.name });
+      db.users.push({ email: me.email, tab: newName || tab, status: 'ממתין', name: me.name, newTab: newName ? 'כן' : '' });
       return linkOf(me.email);
     },
     submitEntry: (p) => {
       const l = linkOf(me.email);
       if (!l || l.status !== 'מאושר') fail('החשבון עדיין לא אושר');
-      if (!(Number(p.hours) > 0)) fail('מספר השעות הנוספות צריך להיות בין 0 ל-24');
-      const r = { ...p, hours: Number(p.hours), id: 'r' + Date.now(), email: me.email, name: me.name, tab: l.tab, status: 'ממתין' };
-      db.reports.push(r);
-      return r;
+      (db.sheet[l.tab] = db.sheet[l.tab] || []).push({ date: p.date, start: p.start, end: p.end, hours: Number(p.hours), note: p.note || '' });
+      return true;
     },
     myEntries: ({ month }) => {
       const l = linkOf(me.email);
-      const mine = db.reports.filter((r) => r.email === me.email && r.date.startsWith(month));
-      const approved = (db.sheet[l.tab] || []).filter((r) => r.date.startsWith(month)).map((r) => ({ ...r, status: 'מאושר' }));
-      const pending = mine.filter((r) => r.status === 'ממתין');
-      return { month, tab: l.tab, missingFile: !db.months.some((m) => m.month === month), approved, pending,
-        rejected: mine.filter((r) => r.status === 'נדחה'), totals: { approved: sum(approved), pending: sum(pending) } };
+      const entries = rowsOf(l.tab, month);
+      const has = db.months.some((m) => m.month === month);
+      return { month, tab: l.tab, missingFile: !has, canCreate: !has && month > ym, entries, totals: { hours: sum(entries), count: entries.length } };
     },
-    deletePending: ({ id }) => { db.reports = db.reports.filter((r) => r.id !== id); return true; },
+    deleteEntry: ({ row, sig: s }) => {
+      const l = linkOf(me.email);
+      const arr = db.sheet[l.tab] || [];
+      const i = row - 2;
+      if (!arr[i] || sig(arr[i]) !== s) fail('הדיווח השתנה בינתיים. רעננו ונסו שוב.');
+      arr.splice(i, 1);
+      return true;
+    },
     adminData: ({ month }) => {
       const byTab = {}; db.users.forEach((u) => { if (u.status === 'מאושר') byTab[u.tab] = u.email; });
       const has = db.months.some((m) => m.month === month);
       return {
         month, users: db.users, owners: db.owners, months: db.months,
-        pending: db.reports.filter((r) => r.status === 'ממתין').sort((a, b) => a.date.localeCompare(b.date)),
-        summary: has ? TABS.map((t) => { const rows = (db.sheet[t] || []).filter((r) => r.date.startsWith(month)); return { tab: t, email: byTab[t] || '', count: rows.length, hours: sum(rows) }; }) : null,
+        summary: has ? TABS.map((t) => { const rows = rowsOf(t, month); return { tab: t, email: byTab[t] || '', count: rows.length, hours: sum(rows) }; }) : null,
+        tabs: TABS.map((t) => ({ tab: t, email: byTab[t] || '' })),
         settings: { emailNotifications: db.email },
       };
     },
-    decideUser: ({ email, approve }) => { const u = db.users.find((x) => x.email === email); u.status = approve ? 'מאושר' : 'נדחה'; return true; },
-    removeUser: ({ email }) => { db.users = db.users.filter((u) => u.email !== email); return true; },
-    decideEntry: ({ id, approve, reason }) => {
-      const r = db.reports.find((x) => x.id === id);
-      r.status = approve ? 'מאושר' : 'נדחה'; r.reason = reason || '';
-      if (approve) (db.sheet[r.tab] = db.sheet[r.tab] || []).push({ ...r });
+    decideUser: ({ email, approve }) => {
+      const u = db.users.find((x) => x.email === email);
+      if (approve && !TABS.includes(u.tab)) TABS.push(u.tab);
+      u.status = approve ? 'מאושר' : 'נדחה';
       return true;
     },
-    approveMany: ({ ids }) => { ids.forEach((id) => A.decideEntry({ id, approve: true })); return { done: ids.length, errors: [] }; },
+    removeUser: ({ email }) => { db.users = db.users.filter((u) => u.email !== email); return true; },
+    addTab: ({ name }) => { if (TABS.includes(name)) fail('השם כבר קיים'); TABS.push(name); return { tab: name }; },
+    deleteTab: ({ tab }) => { TABS = TABS.filter((t) => t !== tab); delete db.sheet[tab]; db.users = db.users.filter((u) => u.tab !== tab); return { deleted: 1 }; },
+    normalizeTabs: () => ({ fixed: TABS.length, notes: [] }),
     addOwner: ({ email }) => { if (!/@/.test(email)) fail('מייל לא תקין'); db.owners.push({ email, addedBy: me.email }); return true; },
     removeOwner: ({ email }) => { if (db.owners.length <= 1) fail('חייב להישאר לפחות מנהל אחד'); db.owners = db.owners.filter((o) => o.email !== email); return true; },
     setSetting: ({ value }) => { db.email = !!value; return true; },
