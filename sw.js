@@ -1,6 +1,6 @@
 // Service worker – שומר את קבצי האפליקציה כדי שתיפתח מהר גם בקליטה חלשה.
 // כשמעדכנים קבצים, להעלות את מספר הגרסה כדי שהטלפונים יקבלו את החדש.
-const VERSION = 'ot-v2';
+const VERSION = 'ot-v3';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'mock.js', 'config.js', 'manifest.webmanifest', 'privacy.html',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
