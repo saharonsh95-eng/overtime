@@ -4,12 +4,12 @@
 
   const CFG = window.APP_CONFIG || {};
   const DEMO = new URLSearchParams(location.search).has('demo') || !/^https:\/\//.test(CFG.API_URL || '');
-  const TOKEN_KEY = 'ot_token';
+  const SESSION_KEY = 'ot_session';  // התחברות שנשמרת במכשיר (כמה חודשים)
   const HEB_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
   const HEB_DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 
   const state = {
-    token: null,
+    session: null,
     me: null,
     view: 'mine',          // mine | admin
     month: null,           // yyyy-MM shown in "mine"
@@ -50,14 +50,14 @@
   function busy(on) { document.getElementById('busy').hidden = !on; }
 
   /* ================= API ================= */
-  async function api(action, payload) {
+  async function api(action, payload, extra) {
     if (DEMO) return window.MockAPI.call(action, payload);
     let res;
     try {
       res = await fetch(CFG.API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // מונע preflight מול Apps Script
-        body: JSON.stringify({ action, payload: payload || {}, idToken: state.token }),
+        body: JSON.stringify({ action, payload: payload || {}, session: state.session, idToken: extra && extra.idToken }),
       });
     } catch (e) {
       throw new Error('אין חיבור לאינטרנט');
@@ -66,9 +66,10 @@
     if (!j.ok) {
       const err = new Error(j.error || 'שגיאה');
       err.code = j.code;
-      if (j.code === 'AUTH') { signOut(true); }
+      if (j.code === 'AUTH' && !(extra && extra.idToken)) { signOut(true); }
       throw err;
     }
+    if (j.session) saveSession(j.session);   // השרת מאריך את ההתחברות בכל כניסה
     return j.data;
   }
 
@@ -88,18 +89,27 @@
   }
 
   /* ================= auth ================= */
-  function decodeJwt(t) {
-    try { return JSON.parse(decodeURIComponent(escape(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))))); } catch (e) { return null; }
+  function loadSession() {
+    try { return localStorage.getItem(SESSION_KEY) || null; } catch (e) { return null; }
   }
-  function loadToken() {
+  function saveSession(t) {
+    state.session = t;
+    try { localStorage.setItem(SESSION_KEY, t); } catch (e) { /* ignore */ }
+  }
+
+  // אחרי התחברות עם Google: מחליפים את הטוקן הקצר (שעה) בהתחברות ארוכה של האפליקציה
+  async function onCredential(resp) {
+    busy(true);
     try {
-      const t = localStorage.getItem(TOKEN_KEY);
-      const p = t && decodeJwt(t);
-      if (p && p.exp * 1000 > Date.now() + 60000) return t;
-    } catch (e) { /* ignore */ }
-    return null;
+      const r = await api('login', {}, { idToken: resp.credential });
+      saveSession(r.session);
+      boot();
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      busy(false);
+    }
   }
-  function saveToken(t) { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) { /* ignore */ } }
 
   function whenGoogle() {
     return new Promise((resolve) => {
@@ -116,7 +126,7 @@
     if (gisReady) return;
     google.accounts.id.initialize({
       client_id: CFG.CLIENT_ID,
-      callback: (resp) => { state.token = resp.credential; saveToken(resp.credential); boot(); },
+      callback: onCredential,
       auto_select: true,
       cancel_on_tap_outside: false,
       itp_support: true,
@@ -126,16 +136,16 @@
   }
 
   function signOut(expired) {
-    state.token = null; state.me = null;
-    try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
+    state.session = null; state.me = null;
+    try { localStorage.removeItem(SESSION_KEY); localStorage.removeItem('ot_token'); } catch (e) { /* ignore */ }
     if (!expired && window.google && google.accounts) google.accounts.id.disableAutoSelect();
     renderLogin(expired);
   }
 
   /* ================= boot ================= */
   async function boot() {
-    if (!DEMO && !state.token) state.token = loadToken();
-    if (!DEMO && !state.token) return renderLogin();
+    if (!DEMO && !state.session) state.session = loadSession();
+    if (!DEMO && !state.session) return renderLogin();
     try {
       state.me = await api('whoami');
     } catch (e) {
@@ -587,7 +597,6 @@
   // רענון כשחוזרים לאפליקציה
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || !state.me || $sheet.innerHTML) return;
-    if (!DEMO && !loadToken()) return signOut(true);
     if (state.view === 'admin' && state.me.isOwner) loadAdmin();
     else if (state.me.link && state.me.link.status === 'מאושר') loadMine();
   });
