@@ -319,6 +319,8 @@
     }
   }
 
+  const isVac = (e) => !e.start && !e.end && /חופש/.test(e.note || '');
+
   function entryCard(e, actions) {
     const day = dayOf(e.date);
     return `
@@ -326,10 +328,11 @@
         <div class="day"><b>${day.d}</b><span>יום ${day.w}</span></div>
         <div class="body">
           <div class="row1">
-            <span class="hours"><span class="num">${fmtH(e.hours)}</span> ש׳</span>
+            ${isVac(e) ? '<span class="chip vac">חופש</span>' : ''}
+            ${Number(e.hours) || !isVac(e) ? `<span class="hours"><span class="num">${fmtH(e.hours)}</span> ש׳</span>` : ''}
             ${e.start || e.end ? `<span class="times num">${esc(e.start)}–${esc(e.end)}</span>` : ''}
           </div>
-          ${e.note ? `<div class="note">${esc(e.note)}</div>` : ''}
+          ${e.note && !(isVac(e) && e.note === 'חופש') ? `<div class="note">${esc(e.note)}</div>` : ''}
         </div>
         ${actions || ''}
       </div>`;
@@ -356,17 +359,27 @@
     main.querySelectorAll('[data-sig]').forEach((b) => {
       const e = all.find((x) => String(x.row) === b.dataset.row && x.sig === b.dataset.sig);
       b.onclick = () => confirmSheet('למחוק את הדיווח?',
-        `${fmtDate(e.date)} · ${e.start}–${e.end} · ${fmtH(e.hours)} שעות. השורה תימחק גם מהגיליון.`, 'מחיקה', async () => {
+        isVac(e) ? `חופש ב-${fmtDate(e.date)}. השורה תימחק גם מהגיליון.` : `${fmtDate(e.date)} · ${e.start}–${e.end} · ${fmtH(e.hours)} שעות. השורה תימחק גם מהגיליון.`, 'מחיקה', async () => {
           await run(() => api('deleteEntry', { month: m.month, row: e.row, sig: e.sig }), 'נמחק');
           loadMine();
         }, true);
     });
   }
 
-  function entryForm() {
+  function entryForm(mode) {
+    mode = mode || 'hours';
     const defDate = state.month === todayISO().slice(0, 7) ? todayISO() : `${state.month}-01`;
+    const tabs = `
+      <div class="seg" role="tablist">
+        <button type="button" data-mode="hours" class="${mode === 'hours' ? 'on' : ''}">שעות נוספות</button>
+        <button type="button" data-mode="vac" class="${mode === 'vac' ? 'on' : ''}">חופש</button>
+      </div>`;
+    const bindTabs = (root) => root.querySelectorAll('[data-mode]').forEach((b) => {
+      b.onclick = () => { if (b.dataset.mode !== mode) entryForm(b.dataset.mode); };
+    });
+    if (mode === 'vac') return vacationForm(tabs, bindTabs);
     openSheet(`
-      <h2>דיווח שעות נוספות</h2>
+      ${tabs}
       <form id="ef" novalidate>
         <label class="field"><span>תאריך</span><input class="input" type="date" name="date" value="${esc(defDate)}" required></label>
         <div class="grid2">
@@ -377,6 +390,7 @@
         <label class="field"><span>הערה (לא חובה)</span><textarea class="input" name="note" maxlength="300" placeholder="אירוע, החלפה, תרגיל..."></textarea></label>
         <button class="btn primary block" type="submit">שמירה</button>
       </form>`, (root) => {
+      bindTabs(root);
       root.querySelector('#ef').onsubmit = async (ev) => {
         ev.preventDefault();
         const f = Object.fromEntries(new FormData(ev.target).entries());
@@ -391,6 +405,74 @@
         loadMine();
       };
     });
+  }
+
+  // חופש: בוחרים ימים בלוח (אפשר כמה חודשים), ושעות לפי בחירה
+  function vacationForm(tabs, bindTabs) {
+    const picked = new Set();
+    let calMonth = state.month;
+    let hoursVal = '24';
+    const busyDays = new Set(((state.mine && state.mine.entries) || []).map((e) => e.date));
+
+    const calendar = () => {
+      const [y, m] = calMonth.split('-').map(Number);
+      const first = new Date(y, m - 1, 1).getDay();
+      const days = new Date(y, m, 0).getDate();
+      let cells = HEB_DAYS.map((d) => `<div class="cal-h">${d}</div>`).join('');
+      for (let i = 0; i < first; i++) cells += '<div></div>';
+      for (let d = 1; d <= days; d++) {
+        const iso = `${calMonth}-${pad(d)}`;
+        cells += `<button type="button" class="cal-d${picked.has(iso) ? ' on' : ''}${iso === todayISO() ? ' today' : ''}" data-d="${iso}">${d}${busyDays.has(iso) ? '<i></i>' : ''}</button>`;
+      }
+      return `
+        <div class="monthbar cal-bar">
+          <button type="button" class="iconbtn" data-cm="-1" aria-label="חודש קודם">${ICON.prev}</button>
+          <div class="label">${monthLabel(calMonth)}</div>
+          <button type="button" class="iconbtn" data-cm="1" aria-label="חודש הבא">${ICON.next}</button>
+        </div>
+        <div class="cal">${cells}</div>`;
+    };
+
+    const render = () => {
+      openSheet(`
+        ${tabs}
+        <p class="muted small" style="margin:0 0 8px">מסמנים את ימי החופש בלוח. בכל יום נרשם בגיליון "חופש" בהערות.</p>
+        <div id="calwrap">${calendar()}</div>
+        <div class="muted small" id="pc" style="margin:8px 2px 14px">${picked.size ? `נבחרו ${picked.size} ימים` : 'לא נבחרו ימים'}</div>
+        <label class="field"><span>שעות נוספות לכל יום (אפשר להשאיר ריק)</span>
+          <input class="input" type="number" inputmode="decimal" step="0.25" min="0" max="24" id="vh" value="${esc(hoursVal)}" placeholder="ריק = בלי שעות"></label>
+        <button class="btn primary block" id="vs" type="button">שמירת חופש</button>`, (root) => {
+        bindTabs(root);
+        const sync = () => {
+          root.querySelector('#calwrap').innerHTML = calendar();
+          root.querySelector('#pc').textContent = picked.size ? `נבחרו ${picked.size} ימים` : 'לא נבחרו ימים';
+          bindCal();
+        };
+        const bindCal = () => {
+          root.querySelectorAll('[data-d]').forEach((b) => {
+            b.onclick = () => { const d = b.dataset.d; picked.has(d) ? picked.delete(d) : picked.add(d); sync(); };
+          });
+          root.querySelectorAll('[data-cm]').forEach((b) => {
+            b.onclick = () => { calMonth = shiftMonth(calMonth, Number(b.dataset.cm)); sync(); };
+          });
+        };
+        bindCal();
+        root.querySelector('#vh').oninput = (ev) => { hoursVal = ev.target.value; };
+        root.querySelector('#vs').onclick = async () => {
+          if (!picked.size) return toast('יש לבחור לפחות יום אחד', true);
+          const raw = String(hoursVal).trim().replace(',', '.');
+          const h = raw === '' || Number(raw) === 0 ? '' : Number(raw);
+          if (h !== '' && !(h > 0 && h <= 24)) return toast('מספר השעות צריך להיות בין 0 ל-24, או ריק', true);
+          const dates = [...picked].sort();
+          const r = await run(() => api('submitVacation', { dates, hours: h }));
+          toast(r.skipped ? `נשמרו ${r.added} ימי חופש (${r.skipped} כבר היו רשומים)` : `נשמרו ${r.added} ימי חופש ✓`);
+          closeSheet();
+          state.month = dates[0].slice(0, 7);
+          loadMine();
+        };
+      });
+    };
+    render();
   }
 
   /* ================= admin ================= */
