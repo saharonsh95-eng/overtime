@@ -36,6 +36,7 @@
     next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5" stroke-linecap="round"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
     refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
   };
@@ -319,99 +320,151 @@
     }
   }
 
-  const isVac = (e) => !e.start && !e.end && /חופש/.test(e.note || '');
+  const catsList = () => (state.mine && state.mine.categories) || (state.me && state.me.categories) || ['חופש', 'מחלה', 'סיור לימודי'];
+  const catSummary = (cats) => Object.keys(cats || {}).map((c) => `<span class="chip vac">${esc(c)} · ${cats[c].days} ${cats[c].days === 1 ? 'יום' : 'ימים'}</span>`).join(' ');
 
   function entryCard(e, actions) {
     const day = dayOf(e.date);
+    const h = Number(e.hours);
     return `
       <div class="card entry">
         <div class="day"><b>${day.d}</b><span>יום ${day.w}</span></div>
         <div class="body">
           <div class="row1">
-            ${isVac(e) ? '<span class="chip vac">חופש</span>' : ''}
-            ${Number(e.hours) || !isVac(e) ? `<span class="hours"><span class="num">${fmtH(e.hours)}</span> ש׳</span>` : ''}
+            ${e.cat ? `<span class="chip vac">${esc(e.cat)}</span>` : ''}
+            ${h ? `<span class="hours"><span class="num">${fmtH(h)}</span> ש׳</span>` : ''}
             ${e.start || e.end ? `<span class="times num">${esc(e.start)}–${esc(e.end)}</span>` : ''}
           </div>
-          ${e.note && !(isVac(e) && e.note === 'חופש') ? `<div class="note">${esc(e.note)}</div>` : ''}
+          ${e.note && e.note !== e.cat ? `<div class="note">${esc(e.note)}</div>` : ''}
         </div>
         ${actions || ''}
       </div>`;
   }
+
+  const entryText = (e) => [fmtDate(e.date), e.start ? `${e.start}–${e.end}` : '', Number(e.hours) ? `${fmtH(e.hours)} שעות` : '', e.note].filter(Boolean).join(' · ');
 
   function renderMine() {
     const m = state.mine;
     const main = document.getElementById('main');
     if (!main || !m) return;
     const all = m.entries.slice().sort((a, b) => b.date.localeCompare(a.date) || b.start.localeCompare(a.start));
+    const cats = catSummary(m.totals.cats);
     main.innerHTML = `
       ${monthbar(m.month, 'mine')}
       ${m.missingFile ? `<div class="banner">${m.canCreate ? 'החודש הזה ייפתח אוטומטית בדיווח הראשון.' : 'אין קובץ לחודש הזה.'}</div>` : ''}
       <div class="stats">
-        <div class="stat ok"><div class="v num">${fmtH(m.totals.hours)}</div><div class="k">סה״כ שעות נוספות</div></div>
+        <div class="stat ok"><div class="v num">${fmtH(m.totals.hours)}</div><div class="k">שעות נוספות</div></div>
         <div class="stat"><div class="v num">${m.totals.count}</div><div class="k">דיווחים</div></div>
       </div>
+      ${cats ? `<div class="catrow">${cats}</div>` : ''}
       <div class="section-title">הדיווחים שלי</div>
-      ${all.length ? all.map((e) => entryCard(e,
-        `<button class="iconbtn del" data-row="${e.row}" data-sig="${esc(e.sig)}" aria-label="מחיקה">${ICON.trash}</button>`)).join('')
+      ${all.length ? all.map((e, i) => entryCard(e, `
+        <div class="acts">
+          <button class="iconbtn" data-edit="${i}" aria-label="עריכה">${ICON.edit}</button>
+          <button class="iconbtn del" data-del="${i}" aria-label="מחיקה">${ICON.trash}</button>
+        </div>`)).join('')
         : '<div class="empty">אין דיווחים בחודש הזה</div>'}
     `;
     bindMonthbar('mine', (d) => { state.month = shiftMonth(state.month, d); loadMine(); });
-    main.querySelectorAll('[data-sig]').forEach((b) => {
-      const e = all.find((x) => String(x.row) === b.dataset.row && x.sig === b.dataset.sig);
-      b.onclick = () => confirmSheet('למחוק את הדיווח?',
-        isVac(e) ? `חופש ב-${fmtDate(e.date)}. השורה תימחק גם מהגיליון.` : `${fmtDate(e.date)} · ${e.start}–${e.end} · ${fmtH(e.hours)} שעות. השורה תימחק גם מהגיליון.`, 'מחיקה', async () => {
-          await run(() => api('deleteEntry', { month: m.month, row: e.row, sig: e.sig }), 'נמחק');
-          loadMine();
-        }, true);
+    main.querySelectorAll('[data-del]').forEach((b) => {
+      const e = all[Number(b.dataset.del)];
+      b.onclick = () => confirmSheet('למחוק את הדיווח?', `${entryText(e)}. השורה תימחק גם מהגיליון.`, 'מחיקה', async () => {
+        await run(() => api('deleteEntry', { month: m.month, row: e.row, sig: e.sig }), 'נמחק');
+        loadMine();
+      }, true);
+    });
+    main.querySelectorAll('[data-edit]').forEach((b) => {
+      b.onclick = () => entryForm('one', all[Number(b.dataset.edit)]);
     });
   }
 
-  function entryForm(mode) {
-    mode = mode || 'hours';
-    const defDate = state.month === todayISO().slice(0, 7) ? todayISO() : `${state.month}-01`;
-    const tabs = `
+  const diffHours = (a, b) => {
+    const t = (x) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5));
+    let d = t(b) - t(a);
+    if (d <= 0) d += 1440;
+    return Math.round(d / 60 * 100) / 100;
+  };
+  const catChips = (id) => `<div class="qchips" data-for="${id}">${catsList().map((c) => `<button type="button" class="qchip" data-q="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
+  const bindChips = (root, input) => root.querySelectorAll('.qchip').forEach((b) => {
+    b.onclick = () => { input.value = b.dataset.q; input.dispatchEvent(new Event('input')); };
+  });
+
+  // edit = דיווח קיים לעריכה (אז אין לשוניות)
+  function entryForm(mode, edit) {
+    mode = edit ? 'one' : (mode || 'one');
+    const defDate = edit ? edit.date : (state.month === todayISO().slice(0, 7) ? todayISO() : `${state.month}-01`);
+    const tabs = edit ? '<h2>עריכת דיווח</h2>' : `
       <div class="seg" role="tablist">
-        <button type="button" data-mode="hours" class="${mode === 'hours' ? 'on' : ''}">שעות נוספות</button>
-        <button type="button" data-mode="vac" class="${mode === 'vac' ? 'on' : ''}">חופש</button>
+        <button type="button" data-mode="one" class="${mode === 'one' ? 'on' : ''}">דיווח</button>
+        <button type="button" data-mode="multi" class="${mode === 'multi' ? 'on' : ''}">כמה ימים</button>
       </div>`;
     const bindTabs = (root) => root.querySelectorAll('[data-mode]').forEach((b) => {
       b.onclick = () => { if (b.dataset.mode !== mode) entryForm(b.dataset.mode); };
     });
-    if (mode === 'vac') return vacationForm(tabs, bindTabs);
+    if (mode === 'multi') return multiForm(tabs, bindTabs);
+    const full = !!(edit && edit.start === '07:00' && edit.end === '07:00' && Number(edit.hours) === 24);
     openSheet(`
       ${tabs}
       <form id="ef" novalidate>
         <label class="field"><span>תאריך</span><input class="input" type="date" name="date" value="${esc(defDate)}" required></label>
+        <label class="check"><input type="checkbox" name="full" ${full ? 'checked' : ''}> <span><b>משמרת מלאה</b> <span class="muted small">(07:00–07:00, 24 שעות)</span></span></label>
         <div class="grid2">
-          <label class="field"><span>שעת כניסה</span><input class="input" type="time" name="start" required></label>
-          <label class="field"><span>שעת יציאה</span><input class="input" type="time" name="end" required></label>
+          <label class="field"><span>שעת כניסה</span><input class="input" type="time" name="start" value="${esc(edit ? edit.start : '')}"></label>
+          <label class="field"><span>שעת יציאה</span><input class="input" type="time" name="end" value="${esc(edit ? edit.end : '')}"></label>
         </div>
-        <label class="field"><span>שעות נוספות</span><input class="input" type="number" inputmode="decimal" step="0.25" min="0.25" max="24" name="hours" placeholder="לדוגמה 2.5" required></label>
-        <label class="field"><span>הערה (לא חובה)</span><textarea class="input" name="note" maxlength="300" placeholder="אירוע, החלפה, תרגיל..."></textarea></label>
-        <button class="btn primary block" type="submit">שמירה</button>
+        <label class="field"><span>שעות נוספות <span class="muted small" id="hh">(מחושב אוטומטית לפי השעות, אפשר לשנות)</span></span>
+          <input class="input" type="number" inputmode="decimal" step="0.25" min="0" max="24" name="hours" value="${esc(edit && Number(edit.hours) ? edit.hours : '')}" placeholder="לא חובה"></label>
+        <label class="field"><span>הערה</span>
+          ${catChips('note')}
+          <textarea class="input" name="note" maxlength="300" placeholder="לא חובה: אירוע, החלפה, חופש, מחלה...">${esc(edit ? edit.note : '')}</textarea></label>
+        <p class="muted small" style="margin:-6px 2px 12px">הערה שמכילה ${catsList().map(esc).join(' / ')} לא נספרת בשעות הנוספות.</p>
+        <button class="btn primary block" type="submit">${edit ? 'שמירת שינויים' : 'שמירה'}</button>
       </form>`, (root) => {
       bindTabs(root);
-      root.querySelector('#ef').onsubmit = async (ev) => {
+      const f = root.querySelector('#ef');
+      let manual = !!(edit && Number(edit.hours) && !(edit.start && diffHours(edit.start, edit.end) === Number(edit.hours)));
+      const syncFull = () => {
+        const on = f.full.checked;
+        if (on) { f.start.value = '07:00'; f.end.value = '07:00'; f.hours.value = 24; manual = false; }
+        f.start.disabled = f.end.disabled = f.hours.disabled = on;
+      };
+      const autoCalc = () => {
+        if (manual || f.full.checked) return;
+        f.hours.value = f.start.value && f.end.value ? diffHours(f.start.value, f.end.value) : '';
+      };
+      f.full.onchange = syncFull;
+      f.start.oninput = f.end.oninput = autoCalc;
+      f.hours.oninput = () => { manual = f.hours.value !== ''; };
+      bindChips(root, f.note);
+      syncFull();
+      f.onsubmit = async (ev) => {
         ev.preventDefault();
-        const f = Object.fromEntries(new FormData(ev.target).entries());
-        if (!f.date) return toast('יש לבחור תאריך', true);
-        if (!f.start || !f.end) return toast('יש למלא שעת כניסה ויציאה', true);
-        const h = Number(String(f.hours).replace(',', '.'));
-        if (!(h > 0 && h <= 24)) return toast('יש למלא מספר שעות נוספות (בין 0 ל-24)', true);
-        f.hours = h;
-        await run(() => api('submitEntry', f), 'נשמר בגיליון ✓');
+        const p = { date: f.date.value, start: f.start.value, end: f.end.value, hours: '', note: f.note.value.trim(), fullShift: f.full.checked };
+        if (!p.date) return toast('יש לבחור תאריך', true);
+        if (!!p.start !== !!p.end) return toast('יש למלא גם שעת כניסה וגם שעת יציאה (או להשאיר ריק)', true);
+        const raw = String(f.hours.value).trim().replace(',', '.');
+        if (!p.fullShift && raw !== '' && Number(raw) !== 0) {
+          const h = Number(raw);
+          if (!(h > 0 && h <= 24)) return toast('מספר השעות צריך להיות בין 0 ל-24', true);
+          p.hours = h;
+        }
+        if (!p.fullShift && !p.start && p.hours === '' && !p.note) return toast('יש למלא שעות, משמרת מלאה או הערה', true);
+        if (edit) await run(() => api('updateEntry', { month: state.mine.month, row: edit.row, sig: edit.sig, entry: p }), 'עודכן ✓');
+        else await run(() => api('submitEntry', p), 'נשמר בגיליון ✓');
         closeSheet();
-        state.month = f.date.slice(0, 7);
+        state.month = p.date.slice(0, 7);
         loadMine();
       };
     });
   }
 
-  // חופש: בוחרים ימים בלוח (אפשר כמה חודשים), ושעות לפי בחירה
-  function vacationForm(tabs, bindTabs) {
+  // כמה ימים בבת אחת: בוחרים ימים בלוח, הערה חופשית, ושעות לבחירה
+  function multiForm(tabs, bindTabs) {
     const picked = new Set();
     let calMonth = state.month;
-    let hoursVal = '24';
+    let hoursMode = 'none';
+    let hoursVal = '';
+    let noteVal = '';
     const busyDays = new Set(((state.mine && state.mine.entries) || []).map((e) => e.date));
 
     const calendar = () => {
@@ -433,46 +486,62 @@
         <div class="cal">${cells}</div>`;
     };
 
-    const render = () => {
-      openSheet(`
-        ${tabs}
-        <p class="muted small" style="margin:0 0 8px">מסמנים את ימי החופש בלוח. בכל יום נרשם בגיליון "חופש" בהערות.</p>
-        <div id="calwrap">${calendar()}</div>
-        <div class="muted small" id="pc" style="margin:8px 2px 14px">${picked.size ? `נבחרו ${picked.size} ימים` : 'לא נבחרו ימים'}</div>
-        <label class="field"><span>שעות נוספות לכל יום (אפשר להשאיר ריק)</span>
-          <input class="input" type="number" inputmode="decimal" step="0.25" min="0" max="24" id="vh" value="${esc(hoursVal)}" placeholder="ריק = בלי שעות"></label>
-        <button class="btn primary block" id="vs" type="button">שמירת חופש</button>`, (root) => {
-        bindTabs(root);
-        const sync = () => {
-          root.querySelector('#calwrap').innerHTML = calendar();
-          root.querySelector('#pc').textContent = picked.size ? `נבחרו ${picked.size} ימים` : 'לא נבחרו ימים';
-          bindCal();
-        };
-        const bindCal = () => {
-          root.querySelectorAll('[data-d]').forEach((b) => {
-            b.onclick = () => { const d = b.dataset.d; picked.has(d) ? picked.delete(d) : picked.add(d); sync(); };
-          });
-          root.querySelectorAll('[data-cm]').forEach((b) => {
-            b.onclick = () => { calMonth = shiftMonth(calMonth, Number(b.dataset.cm)); sync(); };
-          });
-        };
+    openSheet(`
+      ${tabs}
+      <p class="muted small" style="margin:0 0 8px">מסמנים בלוח את כל הימים, וכותבים הערה אחת לכולם (חופש, מחלה, סיור לימודי או כל דבר אחר).</p>
+      <div id="calwrap">${calendar()}</div>
+      <div class="muted small" id="pc" style="margin:8px 2px 14px">לא נבחרו ימים</div>
+      <label class="field"><span>הערה לכל הימים</span>
+        ${catChips('mnote')}
+        <input class="input" id="mnote" maxlength="300" placeholder="למשל: חופש"></label>
+      <div class="field"><span class="lbl">שעות נוספות לכל יום</span>
+        <div class="radios">
+          <label><input type="radio" name="hm" value="none" checked> ריק</label>
+          <label><input type="radio" name="hm" value="full"> משמרת מלאה (24)</label>
+          <label><input type="radio" name="hm" value="num"> מספר:</label>
+          <input class="input small-in" type="number" inputmode="decimal" step="0.25" min="0" max="24" id="vh" disabled>
+        </div>
+      </div>
+      <button class="btn primary block" id="vs" type="button">שמירה</button>`, (root) => {
+      bindTabs(root);
+      const sync = () => {
+        root.querySelector('#calwrap').innerHTML = calendar();
+        root.querySelector('#pc').textContent = picked.size ? `נבחרו ${picked.size} ימים` : 'לא נבחרו ימים';
         bindCal();
-        root.querySelector('#vh').oninput = (ev) => { hoursVal = ev.target.value; };
-        root.querySelector('#vs').onclick = async () => {
-          if (!picked.size) return toast('יש לבחור לפחות יום אחד', true);
-          const raw = String(hoursVal).trim().replace(',', '.');
-          const h = raw === '' || Number(raw) === 0 ? '' : Number(raw);
-          if (h !== '' && !(h > 0 && h <= 24)) return toast('מספר השעות צריך להיות בין 0 ל-24, או ריק', true);
-          const dates = [...picked].sort();
-          const r = await run(() => api('submitVacation', { dates, hours: h }));
-          toast(r.skipped ? `נשמרו ${r.added} ימי חופש (${r.skipped} כבר היו רשומים)` : `נשמרו ${r.added} ימי חופש ✓`);
-          closeSheet();
-          state.month = dates[0].slice(0, 7);
-          loadMine();
-        };
+      };
+      const bindCal = () => {
+        root.querySelectorAll('[data-d]').forEach((b) => {
+          b.onclick = () => { const d = b.dataset.d; picked.has(d) ? picked.delete(d) : picked.add(d); sync(); };
+        });
+        root.querySelectorAll('[data-cm]').forEach((b) => {
+          b.onclick = () => { calMonth = shiftMonth(calMonth, Number(b.dataset.cm)); sync(); };
+        });
+      };
+      bindCal();
+      const note = root.querySelector('#mnote');
+      note.oninput = () => { noteVal = note.value; };
+      bindChips(root, note);
+      const vh = root.querySelector('#vh');
+      root.querySelectorAll('input[name=hm]').forEach((r) => {
+        r.onchange = () => { hoursMode = r.value; vh.disabled = hoursMode !== 'num'; if (hoursMode === 'num') vh.focus(); };
       });
-    };
-    render();
+      vh.oninput = () => { hoursVal = vh.value; };
+      root.querySelector('#vs').onclick = async () => {
+        if (!picked.size) return toast('יש לבחור לפחות יום אחד', true);
+        const p = { dates: [...picked].sort(), note: noteVal.trim(), hours: '', fullShift: hoursMode === 'full' };
+        if (hoursMode === 'num') {
+          const h = Number(String(hoursVal).trim().replace(',', '.'));
+          if (!(h > 0 && h <= 24)) return toast('מספר השעות צריך להיות בין 0 ל-24', true);
+          p.hours = h;
+        }
+        if (!p.note && hoursMode === 'none') return toast('יש לכתוב הערה (למשל חופש) או לבחור שעות', true);
+        const r = await run(() => api('submitVacation', p));
+        toast(r.skipped ? `נשמרו ${r.added} ימים (${r.skipped} כבר היו רשומים)` : `נשמרו ${r.added} ימים ✓`);
+        closeSheet();
+        state.month = p.dates[0].slice(0, 7);
+        loadMine();
+      };
+    });
   }
 
   /* ================= admin ================= */
@@ -521,9 +590,9 @@
         ${monthbar(a.month, 'adm')}
         ${a.summary ? `
           <table class="summary">
-            <thead><tr><th>שם</th><th style="text-align:end">דיווחים</th><th style="text-align:end">שעות</th></tr></thead>
-            <tbody>${a.summary.map((r) => `<tr><td>${esc(r.tab)}${r.email ? '' : ' <span class="muted small">(לא משויך)</span>'}</td><td class="n num">${r.count}</td><td class="n num">${fmtH(r.hours)}</td></tr>`).join('')}</tbody>
-            <tfoot><tr><td>סה״כ</td><td></td><td class="n num">${fmtH(total)}</td></tr></tfoot>
+            <thead><tr><th>שם</th><th style="text-align:end">שעות נוספות</th></tr></thead>
+            <tbody>${a.summary.map((r) => `<tr><td>${esc(r.tab)}${r.email ? '' : ' <span class="muted small">(לא משויך)</span>'}${Object.keys(r.cats || {}).length ? `<div class="catline">${Object.keys(r.cats).map((c) => `${esc(c)} ${r.cats[c].days}`).join(' · ')}</div>` : ''}</td><td class="n num">${fmtH(r.hours)}</td></tr>`).join('')}</tbody>
+            <tfoot><tr><td>סה״כ</td><td class="n num">${fmtH(total)}</td></tr></tfoot>
           </table>` : `<div class="empty">אין קובץ ל${monthLabel(a.month)}.<br><button class="btn primary small" id="mkthis" style="margin-top:10px">יצירת קובץ לחודש הזה</button></div>`}
       </div>
 
@@ -570,6 +639,13 @@
         <label class="switch"><span><b>התראות במייל</b><br><span class="muted small">מייל למנהלים על בקשת הצטרפות, ולמשתתף כשהבקשה שלו אושרה או נדחתה</span></span>
           <input type="checkbox" id="mail" ${a.settings.emailNotifications ? 'checked' : ''}></label>
         <div style="border-top:1px solid var(--line);margin:14px 0"></div>
+        <b>סוגי היעדרות</b>
+        <p class="muted small" style="margin:4px 0 10px">דיווח שההערה שלו מכילה אחת מהמילים האלה נספר בנפרד ולא בשעות הנוספות. מפרידים בפסיק.</p>
+        <form id="catf" style="display:flex;gap:8px">
+          <input class="input" name="cats" value="${esc((a.settings.categories || []).join(', '))}" style="flex:1">
+          <button class="btn primary" type="submit">שמירה</button>
+        </form>
+        <div style="border-top:1px solid var(--line);margin:14px 0"></div>
         <b>סידור הלשוניות</b>
         <p class="muted small" style="margin:4px 0 10px">מוודא שבכל לשונית הטבלה מתחילה ב-A1 עם העמודות: תאריך, שעת כניסה, שעת יציאה, שעות נוספות, הערה.</p>
         <button class="btn ghost block" id="norm">סידור כל הלשוניות</button>
@@ -612,6 +688,12 @@
     document.getElementById('addo').onsubmit = async (ev) => {
       ev.preventDefault();
       await run(() => api('addOwner', { email: ev.target.email.value.trim() }), 'מנהל נוסף');
+      loadAdmin();
+    };
+    document.getElementById('catf').onsubmit = async (ev) => {
+      ev.preventDefault();
+      await run(() => api('setSetting', { key: 'categories', value: ev.target.cats.value }), 'נשמר');
+      state.mine = null;
       loadAdmin();
     };
     document.getElementById('mail').onchange = (ev) => run(() => api('setSetting', { key: 'emailNotifications', value: ev.target.checked }), 'נשמר');
